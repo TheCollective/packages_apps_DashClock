@@ -59,7 +59,7 @@ public class ExtensionManager {
 
     private final Context mApplicationContext;
 
-    private List<ExtensionWithData> mActiveExtensions = new ArrayList<ExtensionWithData>();
+    private final List<ExtensionWithData> mActiveExtensions = new ArrayList<ExtensionWithData>();
     private Map<ComponentName, ExtensionWithData> mExtensionInfoMap
             = new HashMap<ComponentName, ExtensionWithData>();
     private List<OnChangeListener> mOnChangeListeners = new ArrayList<OnChangeListener>();
@@ -102,11 +102,14 @@ public class ExtensionManager {
 
         boolean cleanupRequired = false;
         ArrayList<ComponentName> newActiveExtensions = new ArrayList<ComponentName>();
-        for (ExtensionWithData ewd : mActiveExtensions) {
-            if (availableExtensions.contains(ewd.listing.componentName)) {
-                newActiveExtensions.add(ewd.listing.componentName);
-            } else {
-                cleanupRequired = true;
+
+        synchronized (mActiveExtensions) {
+            for (ExtensionWithData ewd : mActiveExtensions) {
+                if (availableExtensions.contains(ewd.listing.componentName)) {
+                    newActiveExtensions.add(ewd.listing.componentName);
+                } else {
+                    cleanupRequired = true;
+                }
             }
         }
 
@@ -133,12 +136,16 @@ public class ExtensionManager {
 
     private void saveActiveExtensionList() {
         StringBuilder sb = new StringBuilder();
-        for (ExtensionWithData ci : mActiveExtensions) {
-            if (sb.length() > 0) {
-                sb.append(",");
+
+        synchronized (mActiveExtensions) {
+            for (ExtensionWithData ci : mActiveExtensions) {
+                if (sb.length() > 0) {
+                    sb.append(",");
+                }
+                sb.append(ci.listing.componentName.flattenToString());
             }
-            sb.append(ci.listing.componentName.flattenToString());
         }
+
         mDefaultPreferences.edit()
                 .putString(PREF_ACTIVE_EXTENSIONS, sb.toString())
                 .commit();
@@ -195,7 +202,10 @@ public class ExtensionManager {
             mExtensionInfoMap.put(ewd.listing.componentName, ewd);
         }
 
-        mActiveExtensions = newActiveExtensions;
+        synchronized (mActiveExtensions) {
+            mActiveExtensions.clear();
+            mActiveExtensions.addAll(newActiveExtensions);
+        }
 
         if (saveAndNotify) {
             saveActiveExtensionList();
@@ -251,7 +261,23 @@ public class ExtensionManager {
     }
 
     public List<ExtensionWithData> getActiveExtensionsWithData() {
-        return mActiveExtensions;
+        ArrayList<ExtensionWithData> activeExtensions;
+        synchronized (mActiveExtensions) {
+            activeExtensions = new ArrayList<ExtensionWithData>(mActiveExtensions);
+        }
+        return activeExtensions;
+    }
+
+    public List<ExtensionWithData> getVisibleExtensionsWithData() {
+        ArrayList<ExtensionWithData> visibleExtensions = new ArrayList<ExtensionWithData>();
+        synchronized (mActiveExtensions) {
+            for (ExtensionManager.ExtensionWithData ewd : mActiveExtensions) {
+                if (ewd.latestData.visible()) {
+                    visibleExtensions.add(ewd);
+                }
+            }
+        }
+        return visibleExtensions;
     }
 
     public List<ComponentName> getActiveExtensionNames() {
@@ -278,6 +304,7 @@ public class ExtensionManager {
             Bundle metaData = resolveInfo.serviceInfo.metaData;
             if (metaData != null) {
                 listing.protocolVersion = metaData.getInt("protocolVersion");
+                listing.worldReadable = metaData.getBoolean("worldReadable", false);
                 listing.description = metaData.getString("description");
                 String settingsActivity = metaData.getString("settingsActivity");
                 if (!TextUtils.isEmpty(settingsActivity)) {
@@ -331,6 +358,7 @@ public class ExtensionManager {
     public static class ExtensionListing {
         public ComponentName componentName;
         public int protocolVersion;
+        public boolean worldReadable;
         public String title;
         public String description;
         public Drawable icon;

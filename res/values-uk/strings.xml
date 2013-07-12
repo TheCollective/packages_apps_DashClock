@@ -21,10 +21,14 @@
     <string name="settings">Налаштування</string>
     <string name="more_options">Додаткові налаштування</string>
 
+    <string name="simple_date_format">E, MMM dd</string>
+
     <!-- Configuration -->
+    <string name="shortcut_label_configure">Налаштування DashClock Widget</string>
     <string name="title_configure">Налаштування DashClock Widget</string>
     <string name="section_extensions">Додатки</string>
     <string name="section_appearance">Відображення</string>
+    <!--<string name="section_daydream">Daydream</string>-->
     <string name="section_advanced">Додатково</string>
 
     <string name="title_apps">Програми</string>
@@ -36,6 +40,10 @@
     <string name="done">Готово</string>
     <string name="add_extension">Додати</string>
     <string name="cancel">Скасувати</string>
+
+    <!-- These strings never appear in release builds; translation is very low priority -->
+    <string name="send_logs">Send debug log</string>
+    <string name="send_logs_chooser_title">Send logs using</string>
 
     <string name="prev_date_style">Попередній стиль дати</string>
     <string name="prev_time_style">Попередній стиль годинника</string>
@@ -54,6 +62,7 @@
     <string name="about">Про DashClock Widget</string>
 
     <string name="about_body"><![CDATA[
+        Copyright 2012-2013 Google Inc. All Rights Reserved.<br>
         <a href="http://m.google.com/utos">Умови використання</a>
         &nbsp;&nbsp;&middot;&nbsp;&nbsp;
         <a href="http://www.google.com/policies/privacy/">Політика конфіденційності</a><br><br>
@@ -111,6 +120,8 @@
     <plurals name="calendar_template_mins">
         <item quantity="other">%1$s хв.</item>
     </plurals>
+    <string name="today">Сьогодні</string>
+    <!--<string name="now">Now</string>-->
 
     <!-- Missed calls -->
     <string name="missed_calls_extension_title">Пропущені дзвінки</string>
@@ -122,6 +133,7 @@
         <item quantity="other">%1$s пропущені дзвінки</item>
     </plurals>
     <string name="missed_calls_body_template">Від: %1$s</string>
+    <string name="missed_calls_unknown">Невідомо</string>
 
     <!-- SMS + MMS -->
     <string name="sms_extension_title">Текстові повідомлення</string>

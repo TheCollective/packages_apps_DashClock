@@ -60,6 +60,9 @@ public class CalendarExtension extends DashClockExtension {
     private static final long MINUTE_MILLIS = 60 * 1000;
     private static final long HOUR_MILLIS = 60 * MINUTE_MILLIS;
 
+    // Show events happening "now" if they started under 5 minutes ago
+    public static final long NOW_BUFFER_TIME_MILLIS = 5 * MINUTE_MILLIS;
+
     private static final int DEFAULT_LOOK_AHEAD_HOURS = 6;
     private int mLookAheadHours = DEFAULT_LOOK_AHEAD_HOURS;
 
@@ -135,7 +138,7 @@ public class CalendarExtension extends DashClockExtension {
             mLookAheadHours = DEFAULT_LOOK_AHEAD_HOURS;
         }
 
-        Cursor cursor = openEventsCursor(showAllDay);
+        Cursor cursor = tryOpenEventsCursor(showAllDay);
         if (cursor == null) {
             LOGE(TAG, "Null events cursor, short-circuiting.");
             return;
@@ -143,23 +146,35 @@ public class CalendarExtension extends DashClockExtension {
 
         long currentTimestamp = getCurrentTimestamp();
         long nextTimestamp = 0;
+        long endTimestamp = 0;
         long timeUntilNextAppointent = 0;
         boolean allDay = false;
         int allDayPosition = -1;
+        long allDayTimestampLocalMidnight = 0;
         while (cursor.moveToNext()) {
             nextTimestamp = cursor.getLong(EventsQuery.BEGIN);
+            int tzOffset = TimeZone.getDefault().getOffset(nextTimestamp);
             allDay = cursor.getInt(EventsQuery.ALL_DAY) != 0;
             if (allDay) {
-                if (showAllDay && allDayPosition < 0) {
+                endTimestamp = cursor.getLong(EventsQuery.END) - tzOffset;
+
+                if (showAllDay && allDayPosition < 0 && endTimestamp > currentTimestamp) {
                     // Store the position of this all day event. If no regular events are found
                     // and the user wanted to see all day events, then show this all day event.
                     allDayPosition = cursor.getPosition();
+
+                    // For all day events (if the user wants to see them), convert the begin
+                    // timestamp, which is the midnight UTC time, to local time. That is,
+                    // allDayTimestampLocalMidnight will be midnight in local time since that's a
+                    // more relevant representation of that day to the user.
+                    allDayTimestampLocalMidnight = nextTimestamp - tzOffset;
                 }
                 continue;
             }
             timeUntilNextAppointent = nextTimestamp - currentTimestamp;
 
-            if (timeUntilNextAppointent >= 0) {
+            if (timeUntilNextAppointent >= -NOW_BUFFER_TIME_MILLIS) {
+                // Use this event even if it's already started, a few minutes in
                 break;
             }
 
@@ -170,26 +185,28 @@ public class CalendarExtension extends DashClockExtension {
                     + "Current timestamp " + currentTimestamp);
         }
 
-        if (cursor.isAfterLast()) {
-            if (allDayPosition >= 0) {
-                // But wait, we have an all day event! Use it.
+        if (allDayPosition >= 0) {
+            // Only show all day events if there's no regular event (cursor is after last)
+            // or if the all day event is tomorrow or later and the all day event is earlier than
+            // the regular event.
+            if (cursor.isAfterLast()
+                    || ((allDayTimestampLocalMidnight - currentTimestamp) > 0
+                    && allDayTimestampLocalMidnight < nextTimestamp)) {
                 cursor.moveToPosition(allDayPosition);
                 allDay = true;
 
-                // For all day events (if the user wants to see them), convert the begin
-               // timestamp, which is the midnight UTC time, to local time. That is,
-                // nextTimestamp will now be midnight in local time since that's a more
-                // relevant representation of that day to the user.
-                nextTimestamp = cursor.getLong(EventsQuery.BEGIN)
-                        - TimeZone.getDefault().getOffset(nextTimestamp);
+                nextTimestamp = allDayTimestampLocalMidnight;
                 timeUntilNextAppointent = nextTimestamp - currentTimestamp;
-                LOGD(TAG, "No regular events found but an all day event was found; showing it.");
-            } else {
-                LOGD(TAG, "No upcoming appointments found.");
-                cursor.close();
-                publishUpdate(new ExtensionData());
-                return;
+                LOGD(TAG, "Showing an all day event because either no regular event was found or "
+                        + "it's a full day later than the all-day event.");
             }
+        }
+
+        if (cursor.isAfterLast()) {
+            LOGD(TAG, "No upcoming appointments found.");
+            cursor.close();
+            publishUpdate(new ExtensionData());
+            return;
         }
 
         Calendar nextEventCalendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
@@ -206,6 +223,8 @@ public class CalendarExtension extends DashClockExtension {
             } else {
                untilString = new SimpleDateFormat("E").format(nextEventCalendar.getTime());
             }
+        } else if (minutesUntilNextAppointment < 2) {
+            untilString = getResources().getString(R.string.now);
         } else if (minutesUntilNextAppointment < 60) {
             untilString = getResources().getQuantityString(
                     R.plurals.calendar_template_mins,
@@ -237,11 +256,16 @@ public class CalendarExtension extends DashClockExtension {
                 expandedTimeFormat.setLength(0);
                 expandedTime = getString(R.string.today);
             } else {
-                expandedTimeFormat.append("EEEE, MMM dd");
+                expandedTimeFormat.append(getString(R.string.full_wday_month_day_no_year));
             }
 
+        } else if (minutesUntilNextAppointment < 2) {
+            // Event happening right now!
+            expandedTimeFormat.setLength(0);
+            expandedTime = getString(R.string.now);
+
         } else {
-            if (nextTimestamp - currentTimestamp > 24 * HOUR_MILLIS) {
+            if (timeUntilNextAppointent > 24 * HOUR_MILLIS) {
                 expandedTimeFormat.append("EEEE, ");
             }
 
@@ -264,7 +288,7 @@ public class CalendarExtension extends DashClockExtension {
         }
 
         publishUpdate(new ExtensionData()
-                .visible(allDay || (timeUntilNextAppointent >= 0
+                .visible(allDay || (timeUntilNextAppointent >= -NOW_BUFFER_TIME_MILLIS
                         && timeUntilNextAppointent <= mLookAheadHours * HOUR_MILLIS))
                 .icon(R.drawable.ic_extension_calendar)
                 .status(untilString)
@@ -281,7 +305,7 @@ public class CalendarExtension extends DashClockExtension {
         return Calendar.getInstance(TimeZone.getTimeZone("UTC")).getTimeInMillis();
     }
 
-    private Cursor openEventsCursor(boolean showAllDay) {
+    private Cursor tryOpenEventsCursor(boolean showAllDay) {
         SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
         boolean customVisibility = sp.getBoolean(PREF_CUSTOM_VISIBILITY, false);
         // Filter out all day events unless the user expressly requested to show all day events
@@ -303,7 +327,7 @@ public class CalendarExtension extends DashClockExtension {
         try {
             return getContentResolver().query(
                 CalendarContract.Instances.CONTENT_URI.buildUpon()
-                        .appendPath(Long.toString(now))
+                        .appendPath(Long.toString(now - NOW_BUFFER_TIME_MILLIS))
                         .appendPath(Long.toString(now + mLookAheadHours * HOUR_MILLIS))
                         .build(),
                 EventsQuery.PROJECTION,
@@ -316,7 +340,7 @@ public class CalendarExtension extends DashClockExtension {
                         + calendarSelection + ")",
                 calendarsSelectionArgs,
                 CalendarContract.Instances.BEGIN);
-        } catch (SecurityException e) {
+        } catch (Exception e) {
             LOGE(TAG, "Error querying calendar API", e);
             return null;
         }

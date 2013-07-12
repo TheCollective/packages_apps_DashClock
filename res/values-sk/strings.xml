@@ -22,9 +22,11 @@
     <string name="more_options">Viac možností</string>
 
     <!-- Configuration -->
+    <string name="shortcut_label_configure">Nastaviť DashClock</string>
     <string name="title_configure">Nastaviť DashClock</string>
     <string name="section_extensions">Rozšírenia</string>
     <string name="section_appearance">Vzhľad</string>
+    <string name="section_daydream">Šetrič obrazovky</string>
     <string name="section_advanced">Pokročilé</string>
 
     <string name="title_apps">Aplikácie</string>
@@ -36,6 +38,10 @@
     <string name="done">Hotovo</string>
     <string name="add_extension">Pridať rozšírenie</string>
     <string name="cancel">Zrušiť</string>
+
+    <!-- These strings never appear in release builds; translation is very low priority -->
+    <string name="send_logs">Poslať záznam ladenia</string>
+    <string name="send_logs_chooser_title">Poslať záznamy pomocou</string>
 
     <string name="prev_date_style">Predchádzajúci formát dátumu</string>
     <string name="prev_time_style">Predchádzajúci formát času</string>
@@ -54,6 +60,7 @@
     <string name="about">O aplikácii</string>
 
     <string name="about_body"><![CDATA[
+        Copyright 2012-2013 Google Inc. All Rights Reserved.<br>
         <a href="http://m.google.com/utos">Podmienky služby</a>
         &nbsp;&nbsp;&middot;&nbsp;&nbsp;
         <a href="http://www.google.com/policies/privacy/">Zásady ochrany osobných údajov</a><br><br>
@@ -117,6 +124,8 @@
         <item quantity="few">%1$s minúty</item>
         <item quantity="other">%1$s minút</item>
     </plurals>
+    <string name="today">Dnes</string>
+    <string name="now">Teraz</string>
 
     <!-- Missed calls -->
     <string name="missed_calls_extension_title">Zmeškané hovory</string>
@@ -129,6 +138,7 @@
         <item quantity="other">%1$s zmeškaných hovorov</item>
     </plurals>
     <string name="missed_calls_body_template">Od: %1$s</string>
+    <string name="missed_calls_unknown">Neznámy</string>
 
     <!-- SMS + MMS -->
     <string name="sms_extension_title">Textové správy</string>

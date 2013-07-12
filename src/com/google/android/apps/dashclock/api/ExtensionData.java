@@ -16,14 +16,15 @@
 
 package com.google.android.apps.dashclock.api;
 
-import org.json.JSONException;
-import org.json.JSONObject;
-
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
+
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.net.URISyntaxException;
 
@@ -71,19 +72,16 @@ public class ExtensionData implements Parcelable {
      * old versions of the protocol (and thus old versions of this class), we need a versioning
      * system for the parcels sent between the core app and its extensions.
      */
-    public static final int PARCELABLE_VERSION = 1;
-
-    /**
-     * The number of fields in this version of the parcelable.
-     */
-    public static final int PARCELABLE_SIZE = 6;
+    public static final int PARCELABLE_VERSION = 2;
 
     private static final String KEY_VISIBLE = "visible";
     private static final String KEY_ICON = "icon";
+    private static final String KEY_ICON_URI = "icon_uri";
     private static final String KEY_STATUS = "status";
     private static final String KEY_EXPANDED_TITLE = "title";
     private static final String KEY_EXPANDED_BODY = "body";
     private static final String KEY_CLICK_INTENT = "click_intent";
+    private static final String KEY_CONTENT_DESCRIPTION = "content_description";
 
     /**
      * The maximum length for {@link #status(String)}. Enforced by {@link #clean()}.
@@ -100,12 +98,20 @@ public class ExtensionData implements Parcelable {
      */
     public static final int MAX_EXPANDED_BODY_LENGTH = 1000;
 
+    /**
+     * The maximum length for {@link #contentDescription(String)}. Enforced by {@link #clean()}.
+     */
+    public static final int MAX_CONTENT_DESCRIPTION_LENGTH = 32 +
+            MAX_STATUS_LENGTH + MAX_EXPANDED_TITLE_LENGTH + MAX_EXPANDED_BODY_LENGTH;
+
     private boolean mVisible = false;
     private int mIcon = 0;
+    private Uri mIconUri = null;
     private String mStatus = null;
     private String mExpandedTitle = null;
     private String mExpandedBody = null;
     private Intent mClickIntent = null;
+    private String mContentDescription = null;
 
     public ExtensionData() {
     }
@@ -128,7 +134,7 @@ public class ExtensionData implements Parcelable {
     }
 
     /**
-     * Returns the ID of the resource within the extension's package that represents this
+     * Returns the ID of the drawable resource within the extension's package that represents this
      * data. Default 0.
      */
     public int icon() {
@@ -136,13 +142,39 @@ public class ExtensionData implements Parcelable {
     }
 
     /**
-     * Sets the ID of the resource within the extension's package that represents this
-     * data. The icon should be entirely white, with alpha, and about 96x96 pixels. It will be
+     * Sets the ID of the drawable resource within the extension's package that represents this
+     * data. The icon should be entirely white, with alpha, and about 48x48 dp. It will be
      * scaled down as needed. If there is no contextual icon representation of the data, simply
-     * use the extension or app icon. Default 0.
+     * use the extension or app icon. If an {@link #iconUri(Uri) iconUri} is provided, it
+     * will take precedence over this value. Default 0.
+     *
+     * @see #iconUri(Uri)
      */
     public ExtensionData icon(int icon) {
         mIcon = icon;
+        return this;
+    }
+
+    /**
+     * Returns the content:// URI of a bitmap representing this data. Default null.
+     *
+     * @since v2
+     */
+    public Uri iconUri() {
+        return mIconUri;
+    }
+
+    /**
+     * Sets the content:// URI of the bitmap representing this data. This takes precedence over
+     * the regular {@link #icon(int) icon resource ID} if set. This resource will be loaded
+     * using {@link android.content.ContentResolver#openFileDescriptor(android.net.Uri, String)} and
+     * {@link android.graphics.BitmapFactory#decodeFileDescriptor(java.io.FileDescriptor)}. See the
+     * {@link #icon(int) icon} method for guidelines on the styling of this bitmap.
+     *
+     * @since v2
+     */
+    public ExtensionData iconUri(Uri iconUri) {
+        mIconUri = iconUri;
         return this;
     }
 
@@ -224,16 +256,37 @@ public class ExtensionData implements Parcelable {
     }
 
     /**
+     * Returns the content description for this data, used for accessibility purposes.
+     */
+    public String contentDescription() {
+        return mContentDescription;
+    }
+
+    /**
+     * Sets the content description for this data. This content description will replace the
+     * {@link #status()}, {@link #expandedTitle()} and {@link #expandedBody()} for accessibility
+     * purposes.
+     *
+     * @see android.view.View#setContentDescription(CharSequence)
+     */
+    public ExtensionData contentDescription(String contentDescription) {
+        mContentDescription = contentDescription;
+        return this;
+    }
+
+    /**
      * Serializes the contents of this object to JSON.
      */
     public JSONObject serialize() throws JSONException {
         JSONObject data = new JSONObject();
         data.put(KEY_VISIBLE, mVisible);
         data.put(KEY_ICON, mIcon);
+        data.put(KEY_ICON_URI, (mIconUri == null ? null : mIconUri.toString()));
         data.put(KEY_STATUS, mStatus);
         data.put(KEY_EXPANDED_TITLE, mExpandedTitle);
         data.put(KEY_EXPANDED_BODY, mExpandedBody);
         data.put(KEY_CLICK_INTENT, (mClickIntent == null) ? null : mClickIntent.toUri(0));
+        data.put(KEY_CONTENT_DESCRIPTION, mContentDescription);
         return data;
     }
 
@@ -244,6 +297,8 @@ public class ExtensionData implements Parcelable {
     public void deserialize(JSONObject data) throws JSONException {
         this.mVisible = data.optBoolean(KEY_VISIBLE);
         this.mIcon = data.optInt(KEY_ICON);
+        String iconUriString = data.optString(KEY_ICON_URI);
+        this.mIconUri = TextUtils.isEmpty(iconUriString) ? null : Uri.parse(iconUriString);
         this.mStatus = data.optString(KEY_STATUS);
         this.mExpandedTitle = data.optString(KEY_EXPANDED_TITLE);
         this.mExpandedBody = data.optString(KEY_EXPANDED_BODY);
@@ -251,6 +306,7 @@ public class ExtensionData implements Parcelable {
             this.mClickIntent = Intent.parseUri(data.optString(KEY_CLICK_INTENT), 0);
         } catch (URISyntaxException ignored) {
         }
+        this.mContentDescription = data.optString(KEY_CONTENT_DESCRIPTION);
     }
 
     /**
@@ -260,10 +316,12 @@ public class ExtensionData implements Parcelable {
         Bundle data = new Bundle();
         data.putBoolean(KEY_VISIBLE, mVisible);
         data.putInt(KEY_ICON, mIcon);
+        data.putString(KEY_ICON_URI, (mIconUri == null ? null : mIconUri.toString()));
         data.putString(KEY_STATUS, mStatus);
         data.putString(KEY_EXPANDED_TITLE, mExpandedTitle);
         data.putString(KEY_EXPANDED_BODY, mExpandedBody);
         data.putString(KEY_CLICK_INTENT, (mClickIntent == null) ? null : mClickIntent.toUri(0));
+        data.putString(KEY_CONTENT_DESCRIPTION, mContentDescription);
         return data;
     }
 
@@ -274,6 +332,8 @@ public class ExtensionData implements Parcelable {
     public void fromBundle(Bundle src) {
         this.mVisible = src.getBoolean(KEY_VISIBLE, true);
         this.mIcon = src.getInt(KEY_ICON);
+        String iconUriString = src.getString(KEY_ICON_URI);
+        this.mIconUri = TextUtils.isEmpty(iconUriString) ? null : Uri.parse(iconUriString);
         this.mStatus = src.getString(KEY_STATUS);
         this.mExpandedTitle = src.getString(KEY_EXPANDED_TITLE);
         this.mExpandedBody = src.getString(KEY_EXPANDED_BODY);
@@ -281,6 +341,7 @@ public class ExtensionData implements Parcelable {
             this.mClickIntent = Intent.parseUri(src.getString(KEY_CLICK_INTENT), 0);
         } catch (URISyntaxException ignored) {
         }
+        this.mContentDescription = src.getString(KEY_CONTENT_DESCRIPTION);
     }
 
     /**
@@ -300,7 +361,7 @@ public class ExtensionData implements Parcelable {
     private ExtensionData(Parcel in) {
         int parcelableVersion = in.readInt();
         int parcelableSize = in.readInt();
-        // Version 1 below
+        int startPosition = in.dataPosition();
         if (parcelableVersion >= 1) {
             this.mVisible = (in.readInt() != 0);
             this.mIcon = in.readInt();
@@ -321,22 +382,33 @@ public class ExtensionData implements Parcelable {
             } catch (URISyntaxException ignored) {
             }
         }
-        // Version 2 below
-
-        // Skip any fields we don't know about. For example, if our current version's
-        // PARCELABLE_SIZE is 6 and the input parcelableSize is 12, skip the 6 fields we
-        // haven't read yet (from above) since we don't know about them.
-        in.setDataPosition(in.dataPosition() + (PARCELABLE_SIZE - parcelableSize));
+        if (parcelableVersion >= 2) {
+            this.mContentDescription = in.readString();
+            if (TextUtils.isEmpty(this.mContentDescription)) {
+                this.mContentDescription = null;
+            }
+            String iconUriString = in.readString();
+            this.mIconUri = TextUtils.isEmpty(iconUriString) ? null : Uri.parse(iconUriString);
+        }
+        // Only advance the data position if the parcelable version is >= 2. In v1 of the
+        // parcelable, there was an awful bug where the parcelableSize was complete nonsense.
+        if (parcelableVersion >= 2) {
+            in.setDataPosition(startPosition + parcelableSize);
+        }
     }
 
     @Override
     public void writeToParcel(Parcel parcel, int i) {
         /**
          * NOTE: When adding fields in the process of updating this API, make sure to bump
-         * {@link #PARCELABLE_VERSION} and modify {@link #PARCELABLE_SIZE}.
+         * {@link #PARCELABLE_VERSION}.
          */
         parcel.writeInt(PARCELABLE_VERSION);
-        parcel.writeInt(PARCELABLE_SIZE);
+        // Inject a placeholder that will store the parcel size from this point on
+        // (not including the size itself).
+        int sizePosition = parcel.dataPosition();
+        parcel.writeInt(0);
+        int startPosition = parcel.dataPosition();
         // Version 1 below
         parcel.writeInt(mVisible ? 1 : 0);
         parcel.writeInt(mIcon);
@@ -345,6 +417,13 @@ public class ExtensionData implements Parcelable {
         parcel.writeString(TextUtils.isEmpty(mExpandedBody) ? "" : mExpandedBody);
         parcel.writeString((mClickIntent == null) ? "" : mClickIntent.toUri(0));
         // Version 2 below
+        parcel.writeString(TextUtils.isEmpty(mContentDescription) ? "" : mContentDescription);
+        parcel.writeString(mIconUri == null ? "" : mIconUri.toString());
+        // Go back and write the size
+        int parcelableSize = parcel.dataPosition() - startPosition;
+        parcel.setDataPosition(sizePosition);
+        parcel.writeInt(parcelableSize);
+        parcel.setDataPosition(startPosition + parcelableSize);
     }
 
     @Override
@@ -363,17 +442,19 @@ public class ExtensionData implements Parcelable {
             ExtensionData other = (ExtensionData) o;
             return other.mVisible == mVisible
                     && other.mIcon == mIcon
+                    && objectEquals(other.mIconUri, mIconUri)
                     && TextUtils.equals(other.mStatus, mStatus)
                     && TextUtils.equals(other.mExpandedTitle, mExpandedTitle)
                     && TextUtils.equals(other.mExpandedBody, mExpandedBody)
-                    && intentEquals(other.mClickIntent, mClickIntent);
+                    && objectEquals(other.mClickIntent, mClickIntent)
+                    && TextUtils.equals(other.mContentDescription, mContentDescription);
 
         } catch (ClassCastException e) {
             return false;
         }
     }
 
-    private static boolean intentEquals(Intent x, Intent y) {
+    private static boolean objectEquals(Object x, Object y) {
         if (x == null || y == null) {
             return x == y;
         } else {
@@ -392,19 +473,31 @@ public class ExtensionData implements Parcelable {
         }
     }
 
+    @Override
+    public int hashCode() {
+        throw new UnsupportedOperationException();
+    }
+
     /**
      * Cleans up this object's data according to the size limits described by
      * {@link #MAX_STATUS_LENGTH}, {@link #MAX_EXPANDED_TITLE_LENGTH}, etc.
      */
     public void clean() {
-        if (!TextUtils.isEmpty(mStatus) && mStatus.length() > MAX_STATUS_LENGTH) {
+        if (!TextUtils.isEmpty(mStatus)
+                && mStatus.length() > MAX_STATUS_LENGTH) {
             mStatus = mStatus.substring(0, MAX_STATUS_LENGTH);
         }
-        if (!TextUtils.isEmpty(mExpandedTitle) && mStatus.length() > MAX_EXPANDED_TITLE_LENGTH) {
+        if (!TextUtils.isEmpty(mExpandedTitle)
+                && mExpandedTitle.length() > MAX_EXPANDED_TITLE_LENGTH) {
             mExpandedTitle = mExpandedTitle.substring(0, MAX_EXPANDED_TITLE_LENGTH);
         }
-        if (!TextUtils.isEmpty(mExpandedBody) && mStatus.length() > MAX_EXPANDED_BODY_LENGTH) {
+        if (!TextUtils.isEmpty(mExpandedBody)
+                && mExpandedBody.length() > MAX_EXPANDED_BODY_LENGTH) {
             mExpandedBody = mExpandedBody.substring(0, MAX_EXPANDED_BODY_LENGTH);
+        }
+        if (!TextUtils.isEmpty(mContentDescription)
+                && mContentDescription.length() > MAX_EXPANDED_BODY_LENGTH) {
+            mContentDescription = mContentDescription.substring(0, MAX_CONTENT_DESCRIPTION_LENGTH);
         }
     }
 }

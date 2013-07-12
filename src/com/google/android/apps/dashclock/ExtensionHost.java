@@ -65,14 +65,14 @@ public class ExtensionHost {
     // TODO: this class badly needs inline docs
     private static final String TAG = LogUtils.makeLogTag(ExtensionHost.class);
 
-    private static final int CURRENT_EXTENSION_PROTOCOL_VERSION = 1;
+    private static final int CURRENT_EXTENSION_PROTOCOL_VERSION = 2;
 
     /**
-     * The amount of time to wait after content has changed before triggering an extension data
-     * update request. Any update attempts within this time window will be collapsed, and will
-     * further delay the update by this time.
+     * The amount of time to wait after something has changed before recognizing it as an individual
+     * event. Any changes within this time window will be collapsed, and will further delay the
+     * handling of the event.
      */
-    private static final int UPDATE_COLLAPSE_TIME_MILLIS = 2000;
+    public static final int UPDATE_COLLAPSE_TIME_MILLIS = 500;
 
     private Context mContext;
     private Handler mClientThreadHandler = new Handler();
@@ -162,7 +162,7 @@ public class ExtensionHost {
         conn.hostInterface = makeHostInterface(conn);
         conn.serviceConnection = new ServiceConnection() {
             @Override
-            public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
+            public void onServiceConnected(final ComponentName componentName, IBinder iBinder) {
                 conn.ready = true;
                 conn.binder = IExtension.Stub.asInterface(iBinder);
 
@@ -173,7 +173,12 @@ public class ExtensionHost {
                         // Note that this is protected from ANRs since it runs in the
                         // AsyncHandler thread. Also, since this is a 'oneway' call,
                         // when used with remote extensions, this call does not block.
-                        extension.onInitialize(conn.hostInterface, isReconnect);
+                        try {
+                            extension.onInitialize(conn.hostInterface, isReconnect);
+                        } catch (SecurityException e) {
+                            LOGE(TAG, "Error initializing extension "
+                                    + componentName.toString(), e);
+                        }
                     }
                 }, 0, null);
 
@@ -250,7 +255,7 @@ public class ExtensionHost {
 
             @Override
             public void addWatchContentUris(String[] contentUris) throws RemoteException {
-                if (contentUris != null && contentUris.length > 0) {
+                if (contentUris != null && contentUris.length > 0 && conn.contentObserver != null) {
                     ContentResolver resolver = mContext.getContentResolver();
                     for (String uri : contentUris) {
                         if (TextUtils.isEmpty(uri)) {
@@ -261,6 +266,12 @@ public class ExtensionHost {
                                 conn.contentObserver);
                     }
                 }
+            }
+
+            @Override
+            public void removeAllWatchContentUris() throws RemoteException {
+                ContentResolver resolver = mContext.getContentResolver();
+                resolver.unregisterContentObserver(conn.contentObserver);
             }
 
             @Override
@@ -402,6 +413,7 @@ public class ExtensionHost {
         _createUpdateOperation(DashClockExtension.UPDATE_REASON_SETTINGS_CHANGED);
         _createUpdateOperation(DashClockExtension.UPDATE_REASON_CONTENT_CHANGED);
         _createUpdateOperation(DashClockExtension.UPDATE_REASON_SCREEN_ON);
+        _createUpdateOperation(DashClockExtension.UPDATE_REASON_MANUAL);
     }
 
     private static void _createUpdateOperation(final int reason) {

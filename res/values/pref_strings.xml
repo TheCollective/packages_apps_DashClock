@@ -36,7 +36,7 @@
     <string name="pref_aggressive_centering_title">Always center</string>
     <string name="pref_aggressive_centering_description">Can result in the clock jumping around for different widget states</string>
     <string name="pref_hide_settings_title">Hide settings button</string>
-    <string name="pref_hide_settings_description">Hide the configuration button when the widget is vertically expanded (a "Configure DashClock Widget" home screen shortcut is available as an alternative)</string>
+    <string name="pref_hide_settings_description">Hide the configuration button when the widget is vertically expanded (a \"DashClock Settings\" home screen shortcut is available as an alternative)</string>
 
     <!-- Universal settings preferences -->
     <string name="pref_shortcut_title">Shortcut</string>
@@ -52,6 +52,10 @@
         <item>f</item>
         <item>c</item>
     </string-array>
+    <string name="pref_weather_location_title">Location</string>
+    <string name="pref_weather_location_query_hint">Find a location</string>
+    <string name="pref_weather_location_automatic">Automatic</string>
+    <string name="pref_weather_location_automatic_description">Based on your current location.</string>
 
     <!-- Gmail -->
     <string name="pref_gmail_label_title">Show unread count for label</string>
@@ -97,4 +101,24 @@
     <string name="pref_calendar_custom_visibility_description">If unchecked, show all visible calendars in the Calendar app</string>
     <string name="pref_calendar_show_all_day_title">Show all-day events</string>
     <string name="pref_calendar_show_all_day_description">Include all-day events such as birthdays</string>
+
+    <!-- Daydream preferences -->
+    <string name="pref_daydream_color_title">Foreground color</string>
+    <string name="pref_daydream_color_description">The color of text and icons in Daydream mode</string>
+    <string name="pref_daydream_night_mode_title">Night mode</string>
+    <string name="pref_daydream_night_mode_description">Very dim display (for dark rooms)</string>
+    <string name="pref_daydream_animation_title">Animation</string>
+    <string-array name="pref_daydream_animation_display_names">
+        <item>Pendulum (default)</item>
+        <item>Slide</item>
+        <item>Fade</item>
+        <item>None (may damage your screen)</item>
+    </string-array>
+    <string-array name="pref_daydream_animation_values" translatable="false">
+        <item>pendulum</item>
+        <item>slide</item>
+        <item>fade</item>
+        <item>none</item>
+    </string-array>
+    <string name="pref_daydream_system_settings_title">System Daydream settings</string>
 </resources>

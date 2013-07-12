@@ -17,17 +17,13 @@
 package com.google.android.apps.dashclock.weather;
 
 import com.google.android.apps.dashclock.LogUtils;
-import com.google.android.apps.dashclock.Utils;
 import com.google.android.apps.dashclock.api.DashClockExtension;
 import com.google.android.apps.dashclock.api.ExtensionData;
 import com.google.android.apps.dashclock.configuration.AppChooserPreference;
 
 import net.nurik.roman.dashclock.R;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlPullParserFactory;
-
+import android.app.AlarmManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -35,27 +31,23 @@ import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.location.LocationProvider;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.text.TextUtils;
-import android.util.Pair;
 
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Locale;
 
 import static com.google.android.apps.dashclock.LogUtils.LOGD;
 import static com.google.android.apps.dashclock.LogUtils.LOGE;
 import static com.google.android.apps.dashclock.LogUtils.LOGW;
+import static com.google.android.apps.dashclock.weather.YahooWeatherApiClient.*;
 
 /**
  * A local weather and forecast extension.
@@ -65,12 +57,23 @@ public class WeatherExtension extends DashClockExtension {
 
     public static final String PREF_WEATHER_UNITS = "pref_weather_units";
     public static final String PREF_WEATHER_SHORTCUT = "pref_weather_shortcut";
+    public static final String PREF_WEATHER_LOCATION = "pref_weather_location";
+
     public static final Intent DEFAULT_WEATHER_INTENT = new Intent(Intent.ACTION_VIEW,
             Uri.parse("https://www.google.com/search?q=weather"));
 
+    public static final String STATE_WEATHER_LAST_BACKOFF_MILLIS
+            = "state_weather_last_backoff_millis";
+    public static final String STATE_WEATHER_LAST_UPDATE_ELAPSED_MILLIS
+            = "state_weather_last_update_elapsed_millis";
+
+    private static final int UPDATE_THROTTLE_MILLIS = 10 * 3600000; // At least 10 min b/w updates
+
     private static final long STALE_LOCATION_NANOS = 10l * 60000000000l; // 10 minutes
 
-    private static XmlPullParserFactory sXmlPullParserFactory;
+    private static final int INITIAL_BACKOFF_MILLIS = 30000; // 30 seconds for first error retry
+
+    private static final int LOCATION_TIMEOUT_MILLIS = 60000; // 60 sec timeout for location attempt
 
     private static final Criteria sLocationCriteria;
 
@@ -79,6 +82,8 @@ public class WeatherExtension extends DashClockExtension {
 
     private boolean mOneTimeLocationListenerActive = false;
 
+    private Handler mTimeoutHandler = new Handler();
+
     static {
         sLocationCriteria = new Criteria();
         sLocationCriteria.setPowerRequirement(Criteria.POWER_LOW);
@@ -86,13 +91,25 @@ public class WeatherExtension extends DashClockExtension {
         sLocationCriteria.setCostAllowed(false);
     }
 
-    static {
-        try {
-            sXmlPullParserFactory = XmlPullParserFactory.newInstance();
-            sXmlPullParserFactory.setNamespaceAware(true);
-        } catch (XmlPullParserException e) {
-            LOGE(TAG, "Could not instantiate XmlPullParserFactory", e);
-        }
+    private void resetAndCancelRetries() {
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
+        sp.edit().remove(STATE_WEATHER_LAST_BACKOFF_MILLIS).apply();
+        AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
+        am.cancel(WeatherRetryReceiver.getPendingIntent(this));
+    }
+
+    private void scheduleRetry() {
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
+        int lastBackoffMillis = sp.getInt(STATE_WEATHER_LAST_BACKOFF_MILLIS, 0);
+        int backoffMillis = (lastBackoffMillis > 0)
+                ? lastBackoffMillis * 2
+                : INITIAL_BACKOFF_MILLIS;
+        sp.edit().putInt(STATE_WEATHER_LAST_BACKOFF_MILLIS, backoffMillis).apply();
+        LOGD(TAG, "Scheduling weather retry in " + (backoffMillis / 1000) + " second(s)");
+        AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
+        am.set(AlarmManager.ELAPSED_REALTIME,
+                SystemClock.elapsedRealtime() + backoffMillis,
+                WeatherRetryReceiver.getPendingIntent(this));
     }
 
     @Override
@@ -102,16 +119,45 @@ public class WeatherExtension extends DashClockExtension {
         sWeatherIntent = AppChooserPreference.getIntentValue(
                 sp.getString(PREF_WEATHER_SHORTCUT, null), DEFAULT_WEATHER_INTENT);
 
+        setWeatherUnits(sWeatherUnits);
+
+        long lastUpdateElapsedMillis = sp.getLong(STATE_WEATHER_LAST_UPDATE_ELAPSED_MILLIS,
+                -UPDATE_THROTTLE_MILLIS);
+        long nowElapsedMillis = SystemClock.elapsedRealtime();
+        if (reason != UPDATE_REASON_INITIAL && reason != UPDATE_REASON_MANUAL &&
+                nowElapsedMillis < lastUpdateElapsedMillis + UPDATE_THROTTLE_MILLIS) {
+            LOGD(TAG, "Throttling weather update attempt.");
+            return;
+        }
+
+        LOGD(TAG, "Attempting weather update; reason=" + reason);
+
         NetworkInfo ni = ((ConnectivityManager) getSystemService(
                 Context.CONNECTIVITY_SERVICE)).getActiveNetworkInfo();
         if (ni == null || !ni.isConnected()) {
+            LOGD(TAG, "No network connection; not attempting to update weather.");
+            return;
+        }
+
+        String manualLocationWoeid = WeatherLocationPreference.getWoeidFromValue(
+                sp.getString(PREF_WEATHER_LOCATION, null));
+        if (!TextUtils.isEmpty(manualLocationWoeid)) {
+            // WOEIDs
+            // Honolulu = 2423945
+            // Paris = 615702
+            // London = 44418
+            // New York = 2459115
+            // San Francisco = 2487956
+            LocationInfo locationInfo = new LocationInfo();
+            locationInfo.woeids = Arrays.asList(manualLocationWoeid);
+            tryPublishWeatherUpdateFromLocationInfo(locationInfo);
             return;
         }
 
         LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         String provider = lm.getBestProvider(sLocationCriteria, true);
         if (TextUtils.isEmpty(provider)) {
-            publishErrorUpdate(new CantGetWeatherException(R.string.no_location_data,
+            publishErrorUpdate(new CantGetWeatherException(false, R.string.no_location_data,
                     "No available location providers matching criteria."));
             return;
         }
@@ -125,8 +171,19 @@ public class WeatherExtension extends DashClockExtension {
             disableOneTimeLocationListener();
             mOneTimeLocationListenerActive = true;
             lm.requestSingleUpdate(provider, mOneTimeLocationListener, null);
+
+            // Time-out single location update request
+            mTimeoutHandler.removeCallbacksAndMessages(null);
+            mTimeoutHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    LOGE(TAG, "Location request timed out.");
+                    disableOneTimeLocationListener();
+                    scheduleRetry();
+                }
+            }, LOCATION_TIMEOUT_MILLIS);
         } else {
-            getWeatherAndPublishUpdate(lastLocation);
+            tryPublishWeatherUpdateFromGeolocation(lastLocation);
         }
     }
 
@@ -141,20 +198,27 @@ public class WeatherExtension extends DashClockExtension {
     private LocationListener mOneTimeLocationListener = new LocationListener() {
         @Override
         public void onLocationChanged(Location location) {
-            getWeatherAndPublishUpdate(location);
+            LOGD(TAG, "Got network location update");
+            mTimeoutHandler.removeCallbacksAndMessages(null);
+            tryPublishWeatherUpdateFromGeolocation(location);
             disableOneTimeLocationListener();
         }
 
         @Override
-        public void onStatusChanged(String s, int i, Bundle bundle) {
+        public void onStatusChanged(String provider, int status, Bundle extras) {
+            LOGD(TAG, "Network location provider status change: " + status);
+            if (status == LocationProvider.TEMPORARILY_UNAVAILABLE) {
+                scheduleRetry();
+                disableOneTimeLocationListener();
+            }
         }
 
         @Override
-        public void onProviderEnabled(String s) {
+        public void onProviderEnabled(String provider) {
         }
 
         @Override
-        public void onProviderDisabled(String s) {
+        public void onProviderDisabled(String provider) {
         }
     };
 
@@ -164,12 +228,26 @@ public class WeatherExtension extends DashClockExtension {
         disableOneTimeLocationListener();
     }
 
-    private void getWeatherAndPublishUpdate(Location location) {
+    private void tryPublishWeatherUpdateFromGeolocation(Location location) {
         try {
-            WeatherData weatherData = getWeatherForLocation(location);
-            publishWeatherUpdate(weatherData);
+            LOGD(TAG, "Using location: " + location.getLatitude() + "," + location.getLongitude());
+            tryPublishWeatherUpdateFromLocationInfo(getLocationInfo(location));
         } catch (CantGetWeatherException e) {
             publishErrorUpdate(e);
+            if (e.isRetryable()) {
+                scheduleRetry();
+            }
+        }
+    }
+
+    private void tryPublishWeatherUpdateFromLocationInfo(LocationInfo locationInfo) {
+        try {
+            publishWeatherUpdate(getWeatherForLocationInfo(locationInfo));
+        } catch (CantGetWeatherException e) {
+            publishErrorUpdate(e);
+            if (e.isRetryable()) {
+                scheduleRetry();
+            }
         }
     }
 
@@ -184,16 +262,27 @@ public class WeatherExtension extends DashClockExtension {
     }
 
     private void publishWeatherUpdate(WeatherData weatherData) {
-        String temperature = weatherData.hasValidTemperature()
+        String temperature = (weatherData.temperature != WeatherData.INVALID_TEMPERATURE)
                 ? getString(R.string.temperature_template, weatherData.temperature)
                 : getString(R.string.status_none);
         StringBuilder expandedBody = new StringBuilder();
+
+        if (weatherData.low != WeatherData.INVALID_TEMPERATURE
+                && weatherData.high != WeatherData.INVALID_TEMPERATURE) {
+            expandedBody.append(getString(R.string.weather_low_high_template,
+                    getString(R.string.temperature_template, weatherData.low),
+                    getString(R.string.temperature_template, weatherData.high)));
+        }
 
         int conditionIconId = WeatherData.getConditionIconId(weatherData.conditionCode);
         if (WeatherData.getConditionIconId(weatherData.todayForecastConditionCode)
                 == R.drawable.ic_weather_raining) {
             // Show rain if it will rain today.
             conditionIconId = R.drawable.ic_weather_raining;
+
+            if (expandedBody.length() > 0) {
+                expandedBody.append(", ");
+            }
             expandedBody.append(
                     getString(R.string.later_forecast_template, weatherData.forecastText));
         }
@@ -212,255 +301,11 @@ public class WeatherExtension extends DashClockExtension {
                         weatherData.conditionText))
                 .icon(conditionIconId)
                 .expandedBody(expandedBody.toString()));
-    }
 
-    private static WeatherData getWeatherForLocation(Location location)
-            throws CantGetWeatherException {
-
-        LOGD(TAG, "Using location: " + location.getLatitude() + "," + location.getLongitude());
-
-        // Honolulu = 2423945
-        // Paris = 615702
-        // London = 44418
-        // New York = 2459115
-        // San Francisco = 2487956
-        LocationInfo locationInfo = getLocationInfo(location);
-
-        // Loop through the woeids (they're in descending precision order) until weather data
-        // is found.
-        for (String woeid : locationInfo.woeids) {
-            LOGD(TAG, "Trying WOEID: " + woeid);
-            WeatherData data = getWeatherDataForWoeid(woeid, locationInfo.town);
-            if (data != null
-                    && data.conditionCode != WeatherData.INVALID_CONDITION
-                    && data.temperature != WeatherData.INVALID_TEMPERATURE) {
-                return data;
-            }
-        }
-
-        // No weather could be found :(
-        throw new CantGetWeatherException(R.string.no_weather_data);
-    }
-
-    private static WeatherData getWeatherDataForWoeid(String woeid, String town)
-            throws CantGetWeatherException {
-        HttpURLConnection connection = null;
-        try {
-            connection = Utils.openUrlConnection(buildWeatherQueryUrl(woeid));
-            XmlPullParser xpp = sXmlPullParserFactory.newPullParser();
-            xpp.setInput(new InputStreamReader(connection.getInputStream()));
-
-            WeatherData data = new WeatherData();
-            boolean hasTodayForecast = false;
-            int eventType = xpp.getEventType();
-            while (eventType != XmlPullParser.END_DOCUMENT) {
-                if (eventType == XmlPullParser.START_TAG
-                        && "condition".equals(xpp.getName())) {
-                    for (int i = xpp.getAttributeCount() - 1; i >= 0; i--) {
-                        if ("temp".equals(xpp.getAttributeName(i))) {
-                            data.temperature = Integer.parseInt(xpp.getAttributeValue(i));
-                        } else if ("code".equals(xpp.getAttributeName(i))) {
-                            data.conditionCode = Integer.parseInt(xpp.getAttributeValue(i));
-                        } else if ("text".equals(xpp.getAttributeName(i))) {
-                            data.conditionText = xpp.getAttributeValue(i);
-                        }
-                    }
-                } else if (eventType == XmlPullParser.START_TAG
-                        && "forecast".equals(xpp.getName())
-                        && !hasTodayForecast) {
-                    // TODO: verify this is the forecast for today (this currently assumes the
-                    // first forecast is today's forecast)
-                    hasTodayForecast = true;
-                    for (int i = xpp.getAttributeCount() - 1; i >= 0; i--) {
-                        if ("code".equals(xpp.getAttributeName(i))) {
-                            data.todayForecastConditionCode
-                                    = Integer.parseInt(xpp.getAttributeValue(i));
-                        } else if ("text".equals(xpp.getAttributeName(i))) {
-                            data.forecastText = xpp.getAttributeValue(i);
-                        }
-                    }
-                } else if (eventType == XmlPullParser.START_TAG
-                        && "location".equals(xpp.getName())) {
-                    String cityOrVillage = "--";
-                    String region = null;
-                    String country = "--";
-                    for (int i = xpp.getAttributeCount() - 1; i >= 0; i--) {
-                        if ("city".equals(xpp.getAttributeName(i))) {
-                            cityOrVillage = xpp.getAttributeValue(i);
-                        } else if ("region".equals(xpp.getAttributeName(i))) {
-                            region = xpp.getAttributeValue(i);
-                        } else if ("country".equals(xpp.getAttributeName(i))) {
-                            country = xpp.getAttributeValue(i);
-                        }
-                    }
-
-                    if (TextUtils.isEmpty(region)) {
-                        // If no region is available, show the country. Otherwise, don't
-                        // show country information.
-                        region = country;
-                    }
-
-                    if (!TextUtils.isEmpty(town) && !town.equals(cityOrVillage)) {
-                        // If a town is available and it's not equivalent to the city name,
-                        // show it.
-                        cityOrVillage = cityOrVillage + ", " + town;
-                    }
-
-                    data.location = cityOrVillage + ", " + region;
-                }
-                eventType = xpp.next();
-            }
-
-            if (TextUtils.isEmpty(data.location)) {
-                data.location = town;
-            }
-
-            return data;
-
-        } catch (IOException e) {
-            // TODO: exponential backoff
-            throw new CantGetWeatherException(R.string.no_weather_data,
-                    "Error parsing weather feed XML.", e);
-        } catch (XmlPullParserException e) {
-            // TODO: exponential backoff
-            throw new CantGetWeatherException(R.string.no_weather_data,
-                    "Error parsing weather feed XML.", e);
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
-    }
-
-    private static LocationInfo getLocationInfo(Location location)
-            throws CantGetWeatherException {
-        LocationInfo li = new LocationInfo();
-
-        // first=tagname (admin1, locality3) second=woeid
-        String primaryWoeid = null;
-        List<Pair<String,String>> alternateWoeids = new ArrayList<Pair<String, String>>();
-
-        HttpURLConnection connection = null;
-        try {
-            connection = Utils.openUrlConnection(buildPlaceSearchUrl(location));
-            XmlPullParser xpp = sXmlPullParserFactory.newPullParser();
-            xpp.setInput(new InputStreamReader(connection.getInputStream()));
-
-            boolean inWoe = false;
-            boolean inTown = false;
-            int eventType = xpp.getEventType();
-
-            while (eventType != XmlPullParser.END_DOCUMENT) {
-                String tagName = xpp.getName();
-
-                if (eventType == XmlPullParser.START_TAG && "woeid".equals(tagName)) {
-                    inWoe = true;
-                } else if (eventType == XmlPullParser.TEXT && inWoe) {
-                    primaryWoeid = xpp.getText();
-                }
-
-                if (eventType == XmlPullParser.START_TAG &&
-                        (tagName.startsWith("locality") || tagName.startsWith("admin"))) {
-                    for (int i = xpp.getAttributeCount() - 1; i >= 0; i--) {
-                        String attrName = xpp.getAttributeName(i);
-                        if ("type".equals(attrName)
-                                && "Town".equals(xpp.getAttributeValue(i))) {
-                            inTown = true;
-                        } else if ("woeid".equals(attrName)) {
-                            String woeid = xpp.getAttributeValue(i);
-                            if (!TextUtils.isEmpty(woeid)) {
-                                alternateWoeids.add(
-                                        new Pair<String, String>(tagName, woeid));
-                            }
-                        }
-                    }
-                } else if (eventType == XmlPullParser.TEXT && inTown) {
-                    li.town = xpp.getText();
-                }
-
-                if (eventType == XmlPullParser.END_TAG) {
-                    inWoe = false;
-                    inTown = false;
-                }
-
-                eventType = xpp.next();
-            }
-
-            // Add the primary woeid if it was found.
-            if (!TextUtils.isEmpty(primaryWoeid)) {
-                li.woeids.add(primaryWoeid);
-            }
-
-            // Sort by descending tag name to order by decreasing precision
-            // (locality3, locality2, locality1, admin3, admin2, admin1, etc.)
-            Collections.sort(alternateWoeids, new Comparator<Pair<String, String>>() {
-                @Override
-                public int compare(Pair<String, String> pair1, Pair<String, String> pair2) {
-                    return pair1.first.compareTo(pair2.first);
-                }
-            });
-
-            for (Pair<String, String> pair : alternateWoeids) {
-                li.woeids.add(pair.second);
-            }
-
-            if (li.woeids.size() > 0) {
-                return li;
-            }
-
-            throw new CantGetWeatherException(R.string.no_weather_data, "No WOEIDs found nearby.");
-
-        } catch (IOException e) {
-            throw new CantGetWeatherException(R.string.no_weather_data,
-                    "Error parsing place search XML", e);
-        } catch (XmlPullParserException e) {
-            throw new CantGetWeatherException(R.string.no_weather_data,
-                    "Error parsing place search XML", e);
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
-    }
-
-    private static String buildWeatherQueryUrl(String woeid) {
-        // http://developer.yahoo.com/weather/
-        return "http://weather.yahooapis.com/forecastrss?w=" + woeid + "&u=" + sWeatherUnits;
-    }
-
-    private static String buildPlaceSearchUrl(Location l) {
-        // GeoPlanet API
-        return "http://where.yahooapis.com/v1/places.q('"
-                + l.getLatitude() + "," + l.getLongitude() + "')"
-                + "?appid=kGO140TV34HVTae_DDS93fM_w3AJmtmI23gxUFnHKWyrOGcRzoFjYpw8Ato6BxhvbTg-";
-    }
-
-    private static class LocationInfo {
-        // Sorted by decreasing precision
-        // (point of interest, locality3, locality2, locality1, admin3, admin2, admin1, etc.)
-        List<String> woeids = new ArrayList<String>();
-        String town;
-    }
-
-    public static class CantGetWeatherException extends Exception {
-        int mUserFacingErrorStringId;
-
-        public CantGetWeatherException(int userFacingErrorStringId) {
-            this(userFacingErrorStringId, null, null);
-        }
-
-        public CantGetWeatherException(int userFacingErrorStringId, String detailMessage) {
-            this(userFacingErrorStringId, detailMessage, null);
-        }
-
-        public CantGetWeatherException(int userFacingErrorStringId, String detailMessage,
-                Throwable throwable) {
-            super(detailMessage, throwable);
-            mUserFacingErrorStringId = userFacingErrorStringId;
-        }
-
-        public int getUserFacingErrorStringId() {
-            return mUserFacingErrorStringId;
-        }
+        // Mark that a successful weather update has been pushed
+        resetAndCancelRetries();
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
+        sp.edit().putLong(STATE_WEATHER_LAST_UPDATE_ELAPSED_MILLIS,
+                SystemClock.elapsedRealtime()).commit();
     }
 }

@@ -21,10 +21,14 @@
     <string name="settings">Paramètres</string>
     <string name="more_options">Plus d\'options</string>
 
+    <string name="simple_date_format">E, MMM dd</string>
+
     <!-- Configuration -->
+    <string name="shortcut_label_configure">Configurer DashClock Widget</string>
     <string name="title_configure">Configurer DashClock Widget</string>
     <string name="section_extensions">Extensions</string>
     <string name="section_appearance">Apparence</string>
+    <!--<string name="section_daydream">Daydream</string>-->
     <string name="section_advanced">Avancé</string>
 
     <string name="title_apps">Applications</string>
@@ -36,6 +40,10 @@
     <string name="done">Terminé</string>
     <string name="add_extension">Ajouter une extension</string>
     <string name="cancel">Annuler</string>
+
+    <!-- These strings never appear in release builds; translation is very low priority -->
+    <string name="send_logs">Send debug log</string>
+    <string name="send_logs_chooser_title">Send logs using</string>
 
     <string name="prev_date_style">Style de date précédent</string>
     <string name="prev_time_style">Style d\'heure précédent</string>
@@ -54,6 +62,7 @@
     <string name="about">À propos</string>
 
     <string name="about_body"><![CDATA[
+        Copyright 2012-2013 Google Inc. All Rights Reserved.<br>
         <a href="http://m.google.com/utos">Conditions d\'utilisation</a>
         &nbsp;&nbsp;&middot;&nbsp;&nbsp;
         <a href="http://www.google.com/policies/privacy/">Politique de confidentialité</a><br><br>
@@ -113,6 +122,8 @@
     <plurals name="calendar_template_mins">
         <item quantity="other">%1$s min</item>
     </plurals>
+    <string name="today">Aujourd\'hui</string>
+    <!--<string name="now">Now</string>-->
 
     <!-- Missed calls -->
     <string name="missed_calls_extension_title">Appels manqués</string>
@@ -124,6 +135,7 @@
         <item quantity="other">%1$s appels manqués</item>
     </plurals>
     <string name="missed_calls_body_template">De : %1$s</string>
+    <!--<string name="missed_calls_unknown">Unknown</string>-->
 
     <!-- SMS + MMS -->
     <string name="sms_extension_title">SMS</string>

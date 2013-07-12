@@ -21,10 +21,14 @@
     <string name="settings">Configuración</string>
     <string name="more_options">Más opciones</string>
 
+    <string name="simple_date_format">E, MMM dd</string>
+
     <!-- Configuration -->
+    <string name="shortcut_label_configure">Configurar DashClock Widget</string>
     <string name="title_configure">Configurar DashClock Widget</string>
     <string name="section_extensions">Extensiones</string>
     <string name="section_appearance">Apariencia</string>
+    <string name="section_daydream">Daydream</string>
     <string name="section_advanced">Avanzado</string>
 
     <string name="title_apps">Aplicaciones</string>
@@ -37,13 +41,16 @@
     <string name="add_extension">Agregar extensión</string>
     <string name="cancel">Cancelar</string>
 
+    <string name="send_logs">Enviar informe de fallo</string>
+    <string name="send_logs_chooser_title">Enviar informe de uso</string>
+
     <string name="prev_date_style">Estilo de fecha anterior</string>
     <string name="prev_time_style">Estilo de hora anterior</string>
     <string name="next_date_style">Estilo de fecha siguiente</string>
     <string name="next_time_style">Estilo de hora siguiente</string>
 
-    <string name="incompatible_extension_menu_template">%1$s (Incompatible)</string>
-    <string name="incompatible_extension_title">Extensión incompatible</string>
+    <string name="incompatible_extension_menu_template">%1$s (No compatible)</string>
+    <string name="incompatible_extension_title">Extensión no compatible</string>
     <string name="incompatible_extension_message_search_play_template"><![CDATA[La
         extensión <b>%1$s</b> no es compatible con esta versión del DashClock.
         ¿Buscar actualización de la extensión en Google Play?]]></string>
@@ -54,6 +61,7 @@
     <string name="about">Acerca de</string>
 
     <string name="about_body"><![CDATA[
+        Copyright 2012-2013 Google Inc. All Rights Reserved.<br>
         <a href="http://m.google.com/utos">Términos de servicio</a>
         &nbsp;&nbsp;&middot;&nbsp;&nbsp;
         <a href="http://www.google.com/policies/privacy/">Política de privacidad</a><br><br>
@@ -90,7 +98,7 @@
     <!-- Next alarm -->
     <string name="next_alarm_extension_title">Próxima alarma</string>
     <string name="next_alarm_extension_description">
-        Muestra información acerca de la próxima alarma programada, si esta existe.
+        Muestra información acerca de la próxima alarma programada, si existe.
     </string>
     <string name="next_alarm">Próxima alarma</string>
 
@@ -101,13 +109,19 @@
         una programada dentro de las próximas seis horas.
     </string>
     <string name="title_calendar_settings">Configuración de la extensión del Calendario</string>
-    <plurals name="calendar_template_hours">
+    <plurals name="calendar_template_days">
+        <item quantity="one">%1$s día</item>
+        <item quantity="other">%1$s días</item>
+    </plurals>
+	<plurals name="calendar_template_hours">
         <item quantity="one">%1$s hr</item>
         <item quantity="other">%1$s hrs</item>
     </plurals>
     <plurals name="calendar_template_mins">
         <item quantity="other">%1$s min</item>
     </plurals>
+    <string name="today">Hoy</string>
+    <string name="now">Ahora</string>
 
     <!-- Missed calls -->
     <string name="missed_calls_extension_title">Llamadas perdidas</string>
@@ -120,6 +134,7 @@
         <item quantity="other">%1$s llamadas perdidas</item>
     </plurals>
     <string name="missed_calls_body_template">De: %1$s</string>
+    <string name="missed_calls_unknown">Desconocido</string>
 
     <!-- SMS + MMS -->
     <string name="sms_extension_title">Mensajes de texto</string>
@@ -137,9 +152,9 @@
     <string name="welcome_title">Personaliza tu DashClock</string>
     <string name="welcome_description">¿Sólo quieres ver la fecha y la hora actual?
         ¡Entonces presiona el checkbox de arriba y listo!
-        Pero, ¿por qué no customizar el DashClock con un par de <i>extensiones</i>?
+        Pero, ¿por qué no personalizar el DashClock con un par de <i>extensiones</i>?
         \n\nLas <b>Extensiones</b> muestran información relevante y actualizada dentro de DashClock.
-        Prueba agregar un par de extensiones debajo.
+        Prueba a agregar un par de extensiones debajo.
     </string>
 
 </resources>

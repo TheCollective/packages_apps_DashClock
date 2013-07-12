@@ -21,10 +21,14 @@
     <string name="settings">設定</string>
     <string name="more_options">更多選項</string>
 
+    <string name="simple_date_format">E, MMM dd</string>
+
     <!-- Configuration -->
+    <string name="shortcut_label_configure">設定DashClock小部件</string>
     <string name="title_configure">設定DashClock小部件</string>
     <string name="section_extensions">擴展</string>
     <string name="section_appearance">外觀</string>
+    <!--<string name="section_daydream">Daydream</string>-->
     <string name="section_advanced">高級</string>
 
     <string name="title_apps">應用程式</string>
@@ -36,6 +40,10 @@
     <string name="done">完成</string>
     <string name="add_extension">添加擴展</string>
     <string name="cancel">取消</string>
+
+    <!-- These strings never appear in release builds; translation is very low priority -->
+    <string name="send_logs">Send debug log</string>
+    <string name="send_logs_chooser_title">Send logs using</string>
 
     <string name="prev_date_style">上一個日期樣式</string>
     <string name="prev_time_style">上一個時間樣式</string>
@@ -54,6 +62,7 @@
     <string name="about">關於</string>
 
     <string name="about_body"><![CDATA[
+        Copyright 2012-2013 Google Inc. All Rights Reserved.<br>
         <a href="http://m.google.com/utos">服務條款</a>
         &nbsp;&nbsp;&middot;&nbsp;&nbsp;
         <a href="http://www.google.com/policies/privacy/">隱私權政策</a><br><br>
@@ -109,6 +118,8 @@
     <plurals name="calendar_template_mins">
         <item quantity="other">%1$s分鐘</item>
     </plurals>
+    <string name="today">今天</string>
+    <!--<string name="now">Now</string>-->
 
     <!-- Missed calls -->
     <string name="missed_calls_extension_title">未接來電</string>
@@ -120,6 +131,7 @@
         <item quantity="other">%1$s個未接來電</item>
     </plurals>
     <string name="missed_calls_body_template">來自: %1$s</string>
+    <!--<string name="missed_calls_unknown">Unknown</string>-->
 
     <!-- SMS + MMS -->
     <string name="sms_extension_title">未讀取簡訊</string>
